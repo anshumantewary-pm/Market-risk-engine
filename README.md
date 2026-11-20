@@ -129,4 +129,4 @@ data range stated.
 
 ## License
 
-See [LICENSE](LICENSE).
+Licensed under the [Apache License 2.0](LICENSE).
