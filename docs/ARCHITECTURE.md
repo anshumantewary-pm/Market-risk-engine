@@ -14,33 +14,10 @@ The engine is a one-way pipeline. Prices go in at the top; VaR/ES numbers, backt
 stress results come out at the bottom and are written to disk. The dashboard only reads those outputs
 (plus calls the library directly for the live what-if tab). Nothing downstream ever reaches back up.
 
-```mermaid
-flowchart TD
-    subgraph Inputs
-        A1[Stooq CSV endpoint] -->|download.py| P[data/raw/prices.csv]
-        A2[Synthetic generator] -->|--sample| P
-        C[config/portfolio.yaml<br/>config/stress_scenarios.yaml]
-    end
+![Market Risk Engine architecture](architecture.svg)
 
-    P --> L[data.load + validate]
-    L --> R[data.returns<br/>daily log returns]
-    C --> CFG[config.load]
-
-    R --> RISK[risk<br/>5 VaR/ES estimators]
-    CFG --> RISK
-    RISK --> BT[backtest<br/>rolling forecasts + tests]
-    R --> ATT[attribution<br/>marginal / component VaR, component ES]
-    R --> ST[stress<br/>historical replay + hypothetical shocks]
-
-    RISK --> PIPE[pipeline.py]
-    BT --> PIPE
-    ATT --> PIPE
-    ST --> PIPE
-    PIPE --> OUT[data/processed/*.csv + run_metadata.json]
-
-    OUT --> DASH[dashboard/app.py<br/>Streamlit]
-    RISK -. what-if tab calls library live .-> DASH
-```
+The diagram is read top to bottom; each band is a layer from §3. The dashed arrow is the only call that
+goes back up: the What-if tab calls the risk and attribution functions live on edited weights.
 
 ---
 

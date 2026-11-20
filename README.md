@@ -31,6 +31,14 @@ The portfolio is about $10M across 12 ETFs used as asset-class proxies:
 | Gold / oil | GLD, USO |
 | Real estate | VNQ |
 
+## Architecture
+
+![Market Risk Engine architecture](docs/architecture.svg)
+
+A one-way pipeline: prices in at the top, risk numbers out at the bottom. The risk and analytics
+layers are pure functions with no file or network I/O, and the dashboard never re-implements maths.
+Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Methods
 
 Conventions: daily log returns; portfolio return `r_p = Σ wᵢ rᵢ`; P&L = notional × r_p;
