@@ -6,6 +6,7 @@
 | Status | Draft, pre-implementation |
 | Related | [ARCHITECTURE.md](ARCHITECTURE.md), [README](../README.md) |
 | License | Apache 2.0 |
+| License | Apache 2.0 |
 
 ---
 
