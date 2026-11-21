@@ -3,9 +3,9 @@
 Value-at-Risk, Expected Shortfall, backtesting, risk attribution and stress testing for a
 multi-asset ETF portfolio, with an interactive Streamlit dashboard.
 
-> **Status: in development.** The engine (data, five VaR/ES methods, backtesting, attribution,
-> stress testing and the end-to-end pipeline) is built and tested. The Streamlit dashboard is next.
-> No results have been published, and none will be until they come from a real-data run.
+> **Status: v1 built and tested on synthetic data.** Data pipeline, five VaR/ES methods, rolling
+> backtests, attribution, stress testing and the Streamlit dashboard all work, with 159 tests in CI.
+> **No real-market results have been published yet**; they will come only from a real-data run.
 
 ---
 
@@ -101,7 +101,27 @@ Useful flags: `--backtest-days N` (backtest only the last N days), `--config`, `
 > Sample mode uses **synthetic** prices. `run_metadata.json` is flagged `"synthetic": true` and the
 > pipeline prints a warning. Synthetic numbers are for demonstrating the engine only.
 
-The dashboard (`make dashboard`) is *planned* and will read these outputs.
+Then open the dashboard:
+
+```bash
+make dashboard   # streamlit run src/riskengine/dashboard/app.py
+```
+
+## Dashboard
+
+Six tabs: **Overview** (headline VaR/ES, P&L history, portfolio), **Method comparison**,
+**Backtest** (loss vs VaR with exceptions, test p-values, traffic light), **Attribution**
+(risk share vs weight share), **Stress tests** and **What-if** (edit weights, risk recomputes live).
+
+> The screenshots below come from a **synthetic** sample run, as the yellow banner says. They
+> show what the engine produces; they are not real market results.
+
+![Dashboard overview (synthetic data)](docs/images/dashboard-overview.png)
+
+![Backtest tab (synthetic data)](docs/images/dashboard-backtest.png)
+
+![Attribution tab (synthetic data)](docs/images/dashboard-attribution.png)
+
 
 ## Project structure
 
@@ -117,7 +137,7 @@ src/riskengine/
   attribution/          marginal / component VaR and ES
   stress/               historical replay and hypothetical shocks
   pipeline.py           end-to-end run -> data/processed/
-  dashboard/app.py      Streamlit app (planned)
+  dashboard/            Streamlit app, charts, output loading, what-if
 tests/                  pytest suite
 docs/                   PRD and architecture
 ```
