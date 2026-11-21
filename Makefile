@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install test lint format
+.PHONY: install test lint format download
 
 install:  ## install the package and dev tools in editable mode
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -13,3 +13,6 @@ lint:  ## check style and common bugs
 
 format:  ## auto-fix lint issues where safe
 	$(PYTHON) -m ruff check . --fix
+
+download:  ## fetch real daily closes from Stooq into data/raw/prices.csv
+	$(PYTHON) -m riskengine.download
