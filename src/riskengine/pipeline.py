@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
+from riskengine.backtest.rolling import rolling_forecasts, stack_forecasts
+from riskengine.backtest.summary import summary_table
 from riskengine.config import DEFAULT_CONFIG_PATH, DEFAULT_STRESS_PATH, Config, load_config
 from riskengine.data.load import DEFAULT_PRICES_PATH, LoadReport, load_prices, save_prices_csv
 from riskengine.data.returns import log_returns
@@ -107,12 +110,36 @@ def current_estimates(settings: RunSettings, cfg: Config, data: MarketData) -> p
     return table
 
 
+def backtest(
+    settings: RunSettings, cfg: Config, data: MarketData
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Step 3: rolling out-of-sample 1-day VaR for every method, then the statistical tests."""
+    alpha = cfg.risk.backtest_alpha
+    estimators = build_estimators(cfg.risk, n_sims=settings.backtest_sims)
+    weights = cfg.portfolio.weight_series()
+    by_method = {}
+    for name, est in estimators.items():
+        t0 = time.perf_counter()
+        by_method[name] = rolling_forecasts(
+            data.returns, weights, est, alpha, cfg.risk.window, settings.backtest_days
+        )
+        f = by_method[name]
+        _log(settings, f"Backtest {name:<12} {len(f)} days, {int(f['exception'].sum())} "
+             f"exceptions ({time.perf_counter() - t0:.1f}s)")
+    summary = summary_table(by_method, alpha, cfg.risk.traffic_light_days)
+    return stack_forecasts(by_method), summary
+
+
 def run(settings: RunSettings) -> dict:
     """Run every step and return a summary of what was produced."""
     cfg = load_config(settings.config_path)
     data = load_market_data(settings, cfg)
     estimates = current_estimates(settings, cfg, data)
-    return {"source": data.source, "days": data.report.n_rows, "estimates": estimates}
+    forecasts, bt_summary = backtest(settings, cfg, data)
+    return {
+        "source": data.source, "days": data.report.n_rows, "estimates": estimates,
+        "backtest_forecasts": forecasts, "backtest_summary": bt_summary,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
