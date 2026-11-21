@@ -63,7 +63,10 @@ def _nearest_correlation(c: np.ndarray, floor: float = 1e-6) -> np.ndarray:
     vals, vecs = np.linalg.eigh((c + c.T) / 2)
     fixed = vecs @ np.diag(np.clip(vals, floor, None)) @ vecs.T
     d = np.sqrt(np.diag(fixed))
-    return fixed / np.outer(d, d)
+    fixed = fixed / np.outer(d, d)
+    fixed = (fixed + fixed.T) / 2  # remove floating-point asymmetry
+    np.fill_diagonal(fixed, 1.0)
+    return fixed
 
 
 def correlation_matrix(tickers: list[str]) -> np.ndarray:
