@@ -61,10 +61,6 @@ def test_download_merges_tickers_with_different_histories(spy_csv):
 
 def test_main_writes_the_prices_file(tmp_path, monkeypatch, spy_csv):
     monkeypatch.setattr("riskengine.download.fetch_text", lambda url: spy_csv)
-    monkeypatch.setattr(
-        "riskengine.download.download_prices.__defaults__",
-        (lambda url: spy_csv,),
-    )
     out = tmp_path / "prices.csv"
     assert main(["--tickers", "SPY", "--out", str(out)]) == 0
     assert out.read_text().splitlines()[0] == "Date,SPY"

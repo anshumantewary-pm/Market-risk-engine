@@ -64,13 +64,14 @@ def fetch_text(url: str, timeout: float = 30.0) -> str:
 
 def download_prices(
     tickers: list[str],
-    fetch: Callable[[str], str] = fetch_text,
+    fetch: Callable[[str], str] | None = None,
 ) -> pd.DataFrame:
     """Download closes for every ticker and merge them on date (outer join).
 
     The loader later restricts the result to the common date range, so tickers with
     shorter histories are kept as-is here.
     """
+    fetch = fetch or fetch_text
     series = []
     for t in tickers:
         url = STOOQ_URL.format(symbol=stooq_symbol(t))
