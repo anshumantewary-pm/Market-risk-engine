@@ -16,8 +16,12 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from riskengine.config import DEFAULT_CONFIG_PATH, DEFAULT_STRESS_PATH
-from riskengine.data.load import DEFAULT_PRICES_PATH
+import pandas as pd
+
+from riskengine.config import DEFAULT_CONFIG_PATH, DEFAULT_STRESS_PATH, Config, load_config
+from riskengine.data.load import DEFAULT_PRICES_PATH, LoadReport, load_prices, save_prices_csv
+from riskengine.data.returns import log_returns
+from riskengine.data.synthetic import generate_prices
 
 DEFAULT_OUT_DIR = Path("data/processed")
 
@@ -59,9 +63,46 @@ def parse_args(argv: list[str] | None = None) -> RunSettings:
     )
 
 
+def _log(settings: RunSettings, msg: str) -> None:
+    if settings.verbose:
+        print(msg, flush=True)
+
+
+@dataclass(frozen=True)
+class MarketData:
+    prices: pd.DataFrame
+    returns: pd.DataFrame
+    report: LoadReport
+    source: str        # "synthetic" or "stooq"
+    synthetic: bool
+
+
+def load_market_data(settings: RunSettings, cfg: Config) -> MarketData:
+    """Step 1: get prices (generating synthetic ones if asked), validate, compute returns."""
+    tickers = cfg.portfolio.tickers
+    if settings.sample:
+        _log(settings, "Generating SYNTHETIC prices (not real market data)...")
+        synthetic = generate_prices(
+            tickers, settings.sample_start, settings.sample_end, seed=cfg.risk.seed
+        )
+        save_prices_csv(synthetic, settings.prices_path)
+    prices, report = load_prices(settings.prices_path, tickers)
+    returns = log_returns(prices)
+    _log(settings, f"Prices: {report.n_rows} days, {report.start.date()} to {report.end.date()}"
+         f" ({report.trimmed_rows} trimmed, {report.dropped_rows} dropped rows)")
+    source = "synthetic" if settings.sample else "stooq"
+    return MarketData(prices, returns, report, source, settings.sample)
+
+
+def run(settings: RunSettings) -> dict:
+    """Run every step and return a summary of what was produced."""
+    cfg = load_config(settings.config_path)
+    data = load_market_data(settings, cfg)
+    return {"source": data.source, "days": data.report.n_rows}
+
+
 def main(argv: list[str] | None = None) -> int:
-    settings = parse_args(argv)
-    print(settings)
+    run(parse_args(argv))
     return 0
 
 
