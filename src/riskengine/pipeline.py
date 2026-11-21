@@ -19,13 +19,23 @@ from pathlib import Path
 
 import pandas as pd
 
+from riskengine.attribution.components import attribution_table
 from riskengine.backtest.rolling import rolling_forecasts, stack_forecasts
 from riskengine.backtest.summary import summary_table
-from riskengine.config import DEFAULT_CONFIG_PATH, DEFAULT_STRESS_PATH, Config, load_config
+from riskengine.config import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_STRESS_PATH,
+    Config,
+    load_config,
+    load_stress_config,
+)
 from riskengine.data.load import DEFAULT_PRICES_PATH, LoadReport, load_prices, save_prices_csv
 from riskengine.data.returns import log_returns
 from riskengine.data.synthetic import generate_prices
 from riskengine.risk.registry import build_estimators, estimate_all, estimates_frame, latest_window
+from riskengine.stress.historical import replay_all
+from riskengine.stress.hypothetical import apply_all
+from riskengine.stress.result import stress_frame
 
 DEFAULT_OUT_DIR = Path("data/processed")
 
@@ -130,15 +140,39 @@ def backtest(
     return stack_forecasts(by_method), summary
 
 
+def attribution(cfg: Config, data: MarketData) -> pd.DataFrame:
+    """Step 4: which positions drive risk, at the highest configured confidence level."""
+    window = latest_window(data.returns, cfg.risk.window)
+    return attribution_table(
+        window, cfg.portfolio.weight_series(), max(cfg.risk.confidence_levels),
+        cfg.portfolio.notional, dict(cfg.portfolio.asset_classes),
+    )
+
+
+def stress(settings: RunSettings, cfg: Config, data: MarketData) -> pd.DataFrame:
+    """Step 5: historical replay (from loaded prices) and illustrative factor shocks."""
+    scenarios = load_stress_config(settings.stress_path)
+    p = cfg.portfolio
+    results = replay_all(data.prices, p.weight_series(), p.notional, scenarios.historical)
+    results += apply_all(p.weight_series(), p.asset_classes, p.notional, scenarios.hypothetical)
+    for r in results:
+        if r.status == "skipped":
+            _log(settings, f"Stress {r.name!r} skipped: {r.reason}")
+    return stress_frame(results)
+
+
 def run(settings: RunSettings) -> dict:
     """Run every step and return a summary of what was produced."""
     cfg = load_config(settings.config_path)
     data = load_market_data(settings, cfg)
     estimates = current_estimates(settings, cfg, data)
     forecasts, bt_summary = backtest(settings, cfg, data)
+    attrib = attribution(cfg, data)
+    stress_results = stress(settings, cfg, data)
     return {
         "source": data.source, "days": data.report.n_rows, "estimates": estimates,
         "backtest_forecasts": forecasts, "backtest_summary": bt_summary,
+        "attribution": attrib, "stress": stress_results,
     }
 
 
