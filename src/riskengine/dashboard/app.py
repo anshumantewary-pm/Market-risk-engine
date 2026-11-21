@@ -27,7 +27,14 @@ def _load(directory: str) -> Outputs:
 
 
 def _usd(x: float) -> str:
-    return f"${x:,.0f}"
+    """Dollar amount with the sign in front: -$1,234 rather than $-1,234."""
+    if pd.isna(x):
+        return "-"
+    return f"-${-x:,.0f}" if x < 0 else f"${x:,.0f}"
+
+
+def _pct(digits: int):
+    return lambda x: "-" if pd.isna(x) else f"{x:.{digits}%}"
 
 
 def header(o: Outputs) -> None:
@@ -78,7 +85,7 @@ def overview_tab(o: Outputs) -> None:
     )
     right.markdown("**Portfolio**")
     right.dataframe(
-        portfolio.style.format({"weight": "{:.1%}", "position ($)": "${:,.0f}"}),
+        portfolio.style.format({"weight": _pct(1), "position ($)": _usd}),
         width="stretch", height=460,
     )
 
@@ -96,9 +103,11 @@ def methods_tab(o: Outputs) -> None:
         st.info(SQRT_TIME_CAVEAT)
     table = est[(est["alpha"] == alpha) & (est["horizon_days"] == horizon)]
     table = table.set_index("label")[["var_usd", "es_usd", "var_pct", "es_pct"]]
+    table.columns = ["VaR ($)", "ES ($)", "VaR (% notional)", "ES (% notional)"]
+    table.index.name = "Method"
     st.dataframe(
-        table.style.format({"var_usd": "${:,.0f}", "es_usd": "${:,.0f}",
-                            "var_pct": "{:.2%}", "es_pct": "{:.2%}"}),
+        table.style.format({"VaR ($)": _usd, "ES ($)": _usd,
+                            "VaR (% notional)": _pct(2), "ES (% notional)": _pct(2)}),
         width="stretch",
     )
     st.caption(
@@ -139,9 +148,12 @@ def backtest_tab(o: Outputs) -> None:
     table = s[["exceptions", "expected_exceptions", "kupiec_p", "christoffersen_p", "cc_p",
                "traffic_light", "traffic_light_exceptions"]].rename(index=METHOD_LABELS)
     table["traffic_light"] = table["traffic_light"].str.capitalize()
+    table.columns = ["Exceptions", "Expected", "Kupiec p", "Christoffersen p",
+                     "Cond. coverage p", "Traffic light", "Exceptions (last 250d)"]
+    table.index.name = "Method"
     st.dataframe(
-        table.style.format({"expected_exceptions": "{:.1f}", "kupiec_p": "{:.3f}",
-                            "christoffersen_p": "{:.3f}", "cc_p": "{:.3f}"}),
+        table.style.format({"Expected": "{:.1f}", "Kupiec p": "{:.3f}",
+                            "Christoffersen p": "{:.3f}", "Cond. coverage p": "{:.3f}"}),
         width="stretch",
     )
     st.caption(
@@ -164,13 +176,16 @@ def attribution_tab(o: Outputs) -> None:
         "of capital."
     )
     st.plotly_chart(charts.attribution_chart(a), width="stretch")
-    cols = ["asset_class", "weight", "risk_share", "es_share", "concentration",
-            "component_var_usd", "component_es_usd"]
+    cols = {"asset_class": "Asset class", "weight": "Weight", "risk_share": "VaR share",
+            "es_share": "ES share", "concentration": "VaR share - weight",
+            "component_var_usd": "Component VaR ($)", "component_es_usd": "Component ES ($)"}
+    table = a[[c for c in cols if c in a.columns]].rename(columns=cols)
+    table.index.name = "Ticker"
     st.dataframe(
-        a[[c for c in cols if c in a.columns]].style.format({
-            "weight": "{:.1%}", "risk_share": "{:.1%}", "es_share": "{:.1%}",
-            "concentration": "{:+.1%}", "component_var_usd": "${:,.0f}",
-            "component_es_usd": "${:,.0f}",
+        table.style.format({
+            "Weight": _pct(1), "VaR share": _pct(1), "ES share": _pct(1),
+            "VaR share - weight": lambda x: f"{x:+.1%}",
+            "Component VaR ($)": _usd, "Component ES ($)": _usd,
         }),
         width="stretch",
     )
@@ -189,9 +204,14 @@ def stress_tab(o: Outputs) -> None:
         st.plotly_chart(charts.stress_chart(st_df), width="stretch")
     table = st_df[["name", "kind", "status", "pnl_usd", "pnl_pct", "worst_day_usd",
                    "start", "end", "reason"]].set_index("name")
+    table["kind"] = table["kind"].replace({"hypothetical": "illustrative"})
+    table[["start", "end", "reason"]] = table[["start", "end", "reason"]].fillna("")
+    table.columns = ["Type", "Status", "P&L ($)", "P&L (%)", "Worst day ($)", "From", "To",
+                     "Note"]
+    table.index.name = "Scenario"
     st.dataframe(
-        table.style.format({"pnl_usd": "${:,.0f}", "pnl_pct": "{:.1%}",
-                            "worst_day_usd": "${:,.0f}"}, na_rep="-"),
+        table.style.format({"P&L ($)": _usd, "P&L (%)": _pct(1), "Worst day ($)": _usd},
+                           na_rep="-"),
         width="stretch",
     )
     skipped = st_df[st_df["status"] == "skipped"]
@@ -230,7 +250,8 @@ def whatif_tab(o: Outputs) -> None:
         "current ES": old["es_usd"], "what-if ES": new["es_usd"],
     })
     st.markdown(f"**{alpha:.0%} 1-day VaR and ES**")
-    st.dataframe(compare.style.format("${:,.0f}"), width="stretch")
+    compare.index.name = "Method"
+    st.dataframe(compare.style.format(_usd), width="stretch")
     st.plotly_chart(charts.attribution_chart(attrib_new), width="stretch")
 
 

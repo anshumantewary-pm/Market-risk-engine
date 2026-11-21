@@ -55,7 +55,7 @@ def pnl_history(returns: pd.DataFrame) -> go.Figure:
         )
     )
     _layout(fig, "Cumulative portfolio P&L ($)", showlegend=False, hovermode="x unified")
-    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    fig.update_yaxes(tickformat=",.0f")
     return fig
 
 
@@ -73,7 +73,7 @@ def method_comparison(estimates: pd.DataFrame, alpha: float, horizon: int) -> go
         )
     _layout(fig, f"{alpha:.0%} {horizon}-day VaR and ES by method ($)", height=360,
             barmode="group")
-    fig.update_xaxes(tickprefix="$", tickformat=",.0f")
+    fig.update_xaxes(tickformat=",.0f")
     fig.update_yaxes(autorange="reversed", gridcolor=SURFACE)
     return fig
 
@@ -135,6 +135,6 @@ def stress_chart(stress: pd.DataFrame) -> go.Figure:
         )
     )
     _layout(fig, "Stress P&L on today's portfolio ($)", height=360, showlegend=False)
-    fig.update_xaxes(tickprefix="$", tickformat=",.0f")
+    fig.update_xaxes(tickformat=",.0f")
     fig.update_yaxes(autorange="reversed", gridcolor=SURFACE)
     return fig
