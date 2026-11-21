@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install test lint format download
+.PHONY: install test lint format download sample pipeline
 
 install:  ## install the package and dev tools in editable mode
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -16,3 +16,9 @@ format:  ## auto-fix lint issues where safe
 
 download:  ## fetch real daily closes from Stooq into data/raw/prices.csv
 	$(PYTHON) -m riskengine.download
+
+sample:  ## run the full pipeline on SYNTHETIC data (no download needed)
+	$(PYTHON) -m riskengine.pipeline --sample
+
+pipeline:  ## run the full pipeline on downloaded data in data/raw/prices.csv
+	$(PYTHON) -m riskengine.pipeline
