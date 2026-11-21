@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from riskengine.risk.base import VarEs, empirical_var_es, prepare
+
 DEFAULT_LAMBDA = 0.94
 SEED_DAYS = 30
 
@@ -36,3 +38,26 @@ def ewma_volatility(returns: pd.DataFrame, lam: float = DEFAULT_LAMBDA) -> pd.Da
     """EWMA volatility per asset and day (the vol known before that day's return)."""
     var, _ = ewma_variance(returns.to_numpy(dtype=float), lam)
     return pd.DataFrame(np.sqrt(var), index=returns.index, columns=returns.columns)
+
+
+class FilteredHistoricalSimulation:
+    """Historical simulation on volatility-adjusted returns (Hull-White style).
+
+    Each past return is divided by the EWMA volatility at the time, which leaves a shock
+    in units of "standard deviations on that day", then multiplied by today's forecast
+    volatility. Calm-period days are scaled up when markets are stressed and vice versa,
+    so the estimate reacts quickly to volatility changes.
+    """
+
+    name = "ewma_fhs"
+
+    def __init__(self, lam: float = DEFAULT_LAMBDA) -> None:
+        self.lam = lam
+
+    def estimate(self, returns: pd.DataFrame, weights: pd.Series, alpha: float) -> VarEs:
+        r, w = prepare(returns, weights, alpha)
+        var_t, var_next = ewma_variance(r, self.lam)
+        rescaled = r / np.sqrt(var_t) * np.sqrt(var_next)
+        losses = -(rescaled @ w)
+        var, es = empirical_var_es(losses, alpha)
+        return VarEs(var, es, {"lambda": self.lam, "asset_vol_now": np.sqrt(var_next).tolist()})
