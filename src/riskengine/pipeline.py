@@ -12,13 +12,17 @@ attribution -> stress -> write ``data/processed/``.
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
 
+from riskengine import __version__
 from riskengine.attribution.components import attribution_table
 from riskengine.backtest.rolling import rolling_forecasts, stack_forecasts
 from riskengine.backtest.summary import summary_table
@@ -195,6 +199,50 @@ def write_outputs(out_dir: Path, cfg: Config, data: MarketData, results: dict) -
     return paths
 
 
+SYNTHETIC_WARNING = (
+    "SYNTHETIC DATA: these results come from simulated prices and are for demonstrating "
+    "the engine only. They are not real market results."
+)
+
+
+def _git_commit() -> str | None:
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None
+
+
+def run_metadata(settings: RunSettings, cfg: Config, data: MarketData) -> dict:
+    """What produced these outputs: data source, synthetic flag, dates, config, versions."""
+    p = cfg.portfolio
+    meta = {
+        "source": data.source,
+        "synthetic": data.synthetic,
+        "warning": SYNTHETIC_WARNING if data.synthetic else None,
+        "data_start": str(data.report.start.date()),
+        "data_end": str(data.report.end.date()),
+        "trading_days": data.report.n_rows,
+        "trimmed_rows": data.report.trimmed_rows,
+        "dropped_rows": data.report.dropped_rows,
+        "portfolio": {
+            "name": p.name, "notional": p.notional, "weights": dict(p.weights),
+            "asset_classes": dict(p.asset_classes),
+        },
+        "risk": asdict(cfg.risk),
+        "backtest_days": settings.backtest_days,
+        "backtest_sims": settings.backtest_sims,
+        "package_version": __version__,
+        "git_commit": _git_commit(),
+        "run_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    if data.synthetic:
+        meta["sample_range"] = [settings.sample_start, settings.sample_end]
+    return meta
+
+
 def run(settings: RunSettings) -> dict:
     """Run every step and return a summary of what was produced."""
     cfg = load_config(settings.config_path)
@@ -209,6 +257,13 @@ def run(settings: RunSettings) -> dict:
         "attribution": attrib, "stress": stress_results,
     }
     results["paths"] = write_outputs(settings.out_dir, cfg, data, results)
+    meta = run_metadata(settings, cfg, data)
+    meta_path = settings.out_dir / "run_metadata.json"
+    meta_path.write_text(json.dumps(meta, indent=2))
+    results["paths"].append(meta_path)
+    results["metadata"] = meta
+    if data.synthetic:
+        _log(settings, SYNTHETIC_WARNING)
     _log(settings, f"Wrote {len(results['paths'])} files to {settings.out_dir}")
     return results
 
