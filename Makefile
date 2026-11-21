@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install test lint format download sample pipeline
+.PHONY: install test lint format download sample pipeline dashboard
 
 install:  ## install the package and dev tools in editable mode
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -22,3 +22,6 @@ sample:  ## run the full pipeline on SYNTHETIC data (no download needed)
 
 pipeline:  ## run the full pipeline on downloaded data in data/raw/prices.csv
 	$(PYTHON) -m riskengine.pipeline
+
+dashboard:  ## open the Streamlit dashboard (run `make sample` or `make pipeline` first)
+	$(PYTHON) -m streamlit run src/riskengine/dashboard/app.py
