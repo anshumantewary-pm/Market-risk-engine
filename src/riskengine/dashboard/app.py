@@ -15,6 +15,7 @@ import streamlit as st
 from riskengine.conventions import SQRT_TIME_CAVEAT
 from riskengine.dashboard import charts
 from riskengine.dashboard.data import Outputs, OutputsMissing, load_outputs, output_dir
+from riskengine.dashboard.whatif import normalise, recompute, risk_config_from_metadata
 from riskengine.risk.registry import METHOD_LABELS
 
 st.set_page_config(page_title="Market Risk Engine", page_icon="📉", layout="wide")
@@ -149,6 +150,88 @@ def backtest_tab(o: Outputs) -> None:
     )
 
 
+def attribution_tab(o: Outputs) -> None:
+    a = o.attribution
+    alpha = max(o.metadata["risk"]["confidence_levels"])
+    top = a["concentration"].idxmax()
+    st.markdown(
+        f"Which positions drive the portfolio's **{alpha:.0%} 1-day VaR**. Component VaR "
+        "splits parametric VaR across positions so the pieces add up to the total; "
+        f"component ES does the same for historical ES. Largest concentration: **{top}** "
+        f"carries {a.loc[top, 'risk_share']:.1%} of VaR on {a.loc[top, 'weight_share']:.1%} "
+        "of capital."
+    )
+    st.plotly_chart(charts.attribution_chart(a), width="stretch")
+    cols = ["asset_class", "weight", "risk_share", "es_share", "concentration",
+            "component_var_usd", "component_es_usd"]
+    st.dataframe(
+        a[[c for c in cols if c in a.columns]].style.format({
+            "weight": "{:.1%}", "risk_share": "{:.1%}", "es_share": "{:.1%}",
+            "concentration": "{:+.1%}", "component_var_usd": "${:,.0f}",
+            "component_es_usd": "${:,.0f}",
+        }),
+        width="stretch",
+    )
+    st.caption("A negative component means the position hedges the rest of the portfolio.")
+
+
+def stress_tab(o: Outputs) -> None:
+    st_df = o.stress
+    st.markdown(
+        "**Historical** scenarios replay each asset's actual move over the window, computed "
+        "from the loaded prices, on today's portfolio. **Illustrative** scenarios apply "
+        "shock sizes chosen as assumptions in `config/stress_scenarios.yaml`; they are not "
+        "historical facts."
+    )
+    if (st_df["status"] == "run").any():
+        st.plotly_chart(charts.stress_chart(st_df), width="stretch")
+    table = st_df[["name", "kind", "status", "pnl_usd", "pnl_pct", "worst_day_usd",
+                   "start", "end", "reason"]].set_index("name")
+    st.dataframe(
+        table.style.format({"pnl_usd": "${:,.0f}", "pnl_pct": "{:.1%}",
+                            "worst_day_usd": "${:,.0f}"}, na_rep="-"),
+        width="stretch",
+    )
+    skipped = st_df[st_df["status"] == "skipped"]
+    for _, r in skipped.iterrows():
+        st.caption(f"Skipped {r['name']}: {r['reason']}")
+
+
+def whatif_tab(o: Outputs) -> None:
+    st.markdown(
+        "Change the weights and the engine recomputes 1-day VaR, ES and attribution on the "
+        "latest window, using the same functions as the pipeline. Weights are rescaled to "
+        "sum to 100% (long-only)."
+    )
+    base = o.weights
+    cols = st.columns(4)
+    raw = {}
+    for i, t in enumerate(base.index):
+        raw[t] = cols[i % 4].number_input(
+            f"{t} (%)", min_value=0.0, max_value=100.0, value=round(base[t] * 100, 1),
+            step=1.0, key=f"w_{t}",
+        )
+    try:
+        new_w = normalise(raw)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    cfg = risk_config_from_metadata(o.metadata)
+    est_new, attrib_new = recompute(o.returns, new_w, o.notional, cfg)
+    est_old, _ = recompute(o.returns, base, o.notional, cfg)
+    alpha = max(cfg.confidence_levels)
+    old = est_old[est_old["alpha"] == alpha].set_index("label")
+    new = est_new[est_new["alpha"] == alpha].set_index("label")
+    compare = pd.DataFrame({
+        "current VaR": old["var_usd"], "what-if VaR": new["var_usd"],
+        "change": new["var_usd"] - old["var_usd"],
+        "current ES": old["es_usd"], "what-if ES": new["es_usd"],
+    })
+    st.markdown(f"**{alpha:.0%} 1-day VaR and ES**")
+    st.dataframe(compare.style.format("${:,.0f}"), width="stretch")
+    st.plotly_chart(charts.attribution_chart(attrib_new), width="stretch")
+
+
 def main() -> None:
     try:
         o = _load(str(output_dir()))
@@ -159,13 +242,21 @@ def main() -> None:
         return
 
     header(o)
-    tabs = st.tabs(["Overview", "Method comparison", "Backtest"])
+    tabs = st.tabs(
+        ["Overview", "Method comparison", "Backtest", "Attribution", "Stress tests", "What-if"]
+    )
     with tabs[0]:
         overview_tab(o)
     with tabs[1]:
         methods_tab(o)
     with tabs[2]:
         backtest_tab(o)
+    with tabs[3]:
+        attribution_tab(o)
+    with tabs[4]:
+        stress_tab(o)
+    with tabs[5]:
+        whatif_tab(o)
 
 
 main()
