@@ -10,9 +10,16 @@ network access.
 
 from __future__ import annotations
 
+import argparse
 import io
+import sys
+import urllib.request
+from collections.abc import Callable
 
 import pandas as pd
+
+from riskengine.config import DEFAULT_CONFIG_PATH, load_config
+from riskengine.data.load import DEFAULT_PRICES_PATH, save_prices_csv
 
 STOOQ_URL = "https://stooq.com/q/d/l/?s={symbol}&i=d"
 
@@ -43,3 +50,52 @@ def parse_stooq_csv(text: str, ticker: str) -> pd.Series:
     s = s[~s.index.duplicated(keep="last")]
     s.name = ticker
     return s
+
+
+def fetch_text(url: str, timeout: float = 30.0) -> str:
+    """Fetch a URL and return its body as text (standard library only)."""
+    req = urllib.request.Request(url, headers={"User-Agent": "market-risk-engine/0.1"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+    except OSError as exc:  # URLError, HTTPError and timeouts are all OSErrors
+        raise DownloadError(f"could not fetch {url}: {exc}") from exc
+
+
+def download_prices(
+    tickers: list[str],
+    fetch: Callable[[str], str] = fetch_text,
+) -> pd.DataFrame:
+    """Download closes for every ticker and merge them on date (outer join).
+
+    The loader later restricts the result to the common date range, so tickers with
+    shorter histories are kept as-is here.
+    """
+    series = []
+    for t in tickers:
+        url = STOOQ_URL.format(symbol=stooq_symbol(t))
+        series.append(parse_stooq_csv(fetch(url), t))
+    prices = pd.concat(series, axis=1).sort_index()
+    prices.index.name = "Date"
+    return prices
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Download daily closes from Stooq.")
+    parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH))
+    parser.add_argument("--out", default=str(DEFAULT_PRICES_PATH))
+    parser.add_argument("--tickers", nargs="*", help="override the tickers in the config")
+    args = parser.parse_args(argv)
+
+    tickers = args.tickers or load_config(args.config).portfolio.tickers
+    print(f"Downloading {len(tickers)} tickers from Stooq: {', '.join(tickers)}")
+    prices = download_prices(tickers)
+    path = save_prices_csv(prices, args.out)
+    starts = prices.apply(pd.Series.first_valid_index)
+    print(f"Saved {len(prices)} rows to {path}")
+    print(f"Common history starts {starts.max().date()} (latest-starting: {starts.idxmax()})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
