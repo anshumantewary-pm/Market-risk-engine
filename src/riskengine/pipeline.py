@@ -161,6 +161,40 @@ def stress(settings: RunSettings, cfg: Config, data: MarketData) -> pd.DataFrame
     return stress_frame(results)
 
 
+OUTPUT_FILES = (
+    "returns.csv",
+    "estimates.csv",
+    "backtest_forecasts.csv",
+    "backtest_summary.csv",
+    "attribution.csv",
+    "stress.csv",
+)
+
+
+def write_outputs(out_dir: Path, cfg: Config, data: MarketData, results: dict) -> list[Path]:
+    """Step 6: write every table to ``out_dir`` as CSV."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    weights = cfg.portfolio.weight_series()
+    returns = data.returns.copy()
+    returns["portfolio_return"] = returns[list(weights.index)] @ weights
+    returns["pnl"] = returns["portfolio_return"] * cfg.portfolio.notional
+    tables = {
+        "returns.csv": (returns, True),
+        "estimates.csv": (results["estimates"], False),
+        "backtest_forecasts.csv": (results["backtest_forecasts"], False),
+        "backtest_summary.csv": (results["backtest_summary"], True),
+        "attribution.csv": (results["attribution"], True),
+        "stress.csv": (results["stress"], False),
+    }
+    paths = []
+    for name in OUTPUT_FILES:
+        frame, keep_index = tables[name]
+        path = out_dir / name
+        frame.to_csv(path, index=keep_index, date_format="%Y-%m-%d")
+        paths.append(path)
+    return paths
+
+
 def run(settings: RunSettings) -> dict:
     """Run every step and return a summary of what was produced."""
     cfg = load_config(settings.config_path)
@@ -169,11 +203,14 @@ def run(settings: RunSettings) -> dict:
     forecasts, bt_summary = backtest(settings, cfg, data)
     attrib = attribution(cfg, data)
     stress_results = stress(settings, cfg, data)
-    return {
+    results = {
         "source": data.source, "days": data.report.n_rows, "estimates": estimates,
         "backtest_forecasts": forecasts, "backtest_summary": bt_summary,
         "attribution": attrib, "stress": stress_results,
     }
+    results["paths"] = write_outputs(settings.out_dir, cfg, data, results)
+    _log(settings, f"Wrote {len(results['paths'])} files to {settings.out_dir}")
+    return results
 
 
 def main(argv: list[str] | None = None) -> int:
