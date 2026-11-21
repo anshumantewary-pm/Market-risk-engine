@@ -54,11 +54,13 @@ def overview_tab(o: Outputs) -> None:
     for col, alpha in zip(cols[:2], (0.95, 0.99), strict=True):
         if alpha in hs.index:
             col.metric(f"VaR {alpha:.0%}", _usd(hs.loc[alpha, "var_usd"]),
-                       f"{hs.loc[alpha, 'var_pct']:.2%} of notional", delta_color="off")
+                       f"{hs.loc[alpha, 'var_pct']:.2%} of notional",
+                       delta_color="off", delta_arrow="off")
     for col, alpha in zip(cols[2:], (0.95, 0.99), strict=True):
         if alpha in hs.index:
             col.metric(f"ES {alpha:.0%}", _usd(hs.loc[alpha, "es_usd"]),
-                       f"{hs.loc[alpha, 'es_pct']:.2%} of notional", delta_color="off")
+                       f"{hs.loc[alpha, 'es_pct']:.2%} of notional",
+                       delta_color="off", delta_arrow="off")
     st.caption(
         "VaR and ES are shown as positive loss amounts: the loss not expected to be exceeded "
         "on 95% / 99% of days (VaR), and the average loss on the days that do exceed it (ES)."
@@ -125,7 +127,7 @@ def backtest_tab(o: Outputs) -> None:
     color, label = ZONE_BADGE[row["traffic_light"]]
     c = st.columns(4)
     c[0].metric("Exceptions", int(row["exceptions"]),
-                f"{row['expected_exceptions']:.1f} expected", delta_color="off")
+                f"{row['expected_exceptions']:.1f} expected", delta_color="off", delta_arrow="off")
     c[1].metric("Kupiec p-value", f"{row['kupiec_p']:.3f}")
     c[2].metric("Christoffersen p-value", f"{row['christoffersen_p']:.3f}")
     with c[3]:
