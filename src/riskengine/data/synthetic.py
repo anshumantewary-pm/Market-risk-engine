@@ -96,25 +96,29 @@ class StressEpisode:
     start: str
     days: int
     drift_in_vols: dict[str, float]
+    vol_mult: float = 1.6  # volatility multiplier while the episode lasts
 
 
 # Placed on the same dates as the historical windows in config/stress_scenarios.yaml so the
 # replay has something to show on sample data. Sizes are invented, not historical.
 EPISODES: tuple[StressEpisode, ...] = (
     StressEpisode(
-        "synthetic credit crisis", "2008-09-15", 60,
-        {"us_equity": -0.35, "intl_equity": -0.40, "credit": -0.30, "treasuries": 0.15,
-         "oil": -0.40, "real_estate": -0.45},
+        "synthetic credit crisis", "2008-09-01", 130,
+        {"us_equity": -0.30, "intl_equity": -0.32, "credit": -0.25, "treasuries": 0.12,
+         "oil": -0.35, "real_estate": -0.38},
+        vol_mult=1.8,
     ),
     StressEpisode(
-        "synthetic pandemic crash", "2020-02-24", 25,
-        {"us_equity": -0.60, "intl_equity": -0.60, "credit": -0.50, "treasuries": 0.20,
-         "oil": -0.70, "real_estate": -0.70, "gold": -0.10},
+        "synthetic pandemic crash", "2020-02-19", 23,
+        {"us_equity": -0.90, "intl_equity": -0.90, "credit": -0.70, "treasuries": 0.25,
+         "oil": -1.00, "real_estate": -1.00, "gold": -0.10},
+        vol_mult=2.5,
     ),
     StressEpisode(
-        "synthetic rate shock", "2022-01-03", 180,
-        {"treasuries": -0.12, "credit": -0.10, "us_equity": -0.07, "intl_equity": -0.07,
-         "real_estate": -0.09, "oil": 0.08},
+        "synthetic rate shock", "2022-01-03", 200,
+        {"treasuries": -0.12, "credit": -0.10, "us_equity": -0.06, "intl_equity": -0.06,
+         "real_estate": -0.08, "oil": 0.06},
+        vol_mult=1.0,
     ),
 )
 
@@ -165,15 +169,18 @@ def generate_prices(
 
     drift = np.zeros((n, k))
     forced = np.zeros(n, dtype=bool)
+    episode_mult = np.full(n, np.nan)
     for ep in EPISODES:
         after = dates >= pd.Timestamp(ep.start)
         mask = after & (np.cumsum(after) <= ep.days)
         forced |= mask
+        episode_mult[mask] = ep.vol_mult
         shock = np.array([ep.drift_in_vols.get(p.group, 0.0) for p in params]) * sigma
         drift[mask] += shock
 
     stressed = _regimes(n, rng, forced)
-    mult = np.where(stressed, STRESSED_VOL_MULT, CALM_VOL_MULT)[:, None]
+    mult = np.where(stressed, STRESSED_VOL_MULT, CALM_VOL_MULT)
+    mult = np.where(forced, episode_mult, mult)[:, None]
 
     g = rng.standard_normal((n, k)) @ np.linalg.cholesky(corr).T
     w = rng.chisquare(T_DOF, size=n) / T_DOF
