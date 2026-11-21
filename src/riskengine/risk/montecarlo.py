@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from scipy import stats
+from scipy import special
 
 from riskengine.risk.base import VarEs, empirical_var_es, prepare
 
@@ -56,6 +56,18 @@ def rank_correlation(r: np.ndarray) -> np.ndarray:
     return rho
 
 
+def empirical_quantiles(r: np.ndarray, u: np.ndarray) -> np.ndarray:
+    """Column-wise empirical quantiles of ``r`` at probabilities ``u`` (linear interpolation).
+
+    Equivalent to ``np.quantile(r[:, j], u[:, j])`` per column, but sorts each column once.
+    """
+    n = len(r)
+    grid = np.arange(n, dtype=float)
+    sorted_r = np.sort(r, axis=0)
+    pos = u * (n - 1)
+    return np.column_stack([np.interp(pos[:, j], grid, sorted_r[:, j]) for j in range(r.shape[1])])
+
+
 class MonteCarloTCopula:
     """Student-t copula for the dependence, each asset's own empirical distribution for marginals.
 
@@ -78,7 +90,7 @@ class MonteCarloTCopula:
         chol = _cholesky(rank_correlation(r))
         g = rng.standard_normal((self.n_sims, r.shape[1])) @ chol.T
         chi = rng.chisquare(self.dof, size=self.n_sims) / self.dof
-        u = stats.t.cdf(g / np.sqrt(chi)[:, None], self.dof)
-        sims = np.column_stack([np.quantile(r[:, j], u[:, j]) for j in range(r.shape[1])])
+        u = special.stdtr(self.dof, g / np.sqrt(chi)[:, None])
+        sims = empirical_quantiles(r, u)
         var, es = empirical_var_es(-(sims @ w), alpha)
         return VarEs(var, es, {"simulations": self.n_sims, "copula_dof": self.dof})
