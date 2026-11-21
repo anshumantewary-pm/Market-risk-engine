@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from scipy import special
 
 from riskengine.risk.base import VarEs, empirical_var_es, prepare
 
@@ -90,7 +89,12 @@ class MonteCarloTCopula:
         chol = _cholesky(rank_correlation(r))
         g = rng.standard_normal((self.n_sims, r.shape[1])) @ chol.T
         chi = rng.chisquare(self.dof, size=self.n_sims) / self.dof
-        u = special.stdtr(self.dof, g / np.sqrt(chi)[:, None])
+        t_draws = g / np.sqrt(chi)[:, None]
+        # A copula is unchanged by monotone transforms of each column, so the ranks of the
+        # t draws carry the full t-copula dependence. Turning ranks into uniform scores
+        # avoids evaluating the t CDF 240,000 times per estimate.
+        ranks = np.argsort(np.argsort(t_draws, axis=0), axis=0)
+        u = (ranks + 0.5) / self.n_sims
         sims = empirical_quantiles(r, u)
         var, es = empirical_var_es(-(sims @ w), alpha)
         return VarEs(var, es, {"simulations": self.n_sims, "copula_dof": self.dof})
