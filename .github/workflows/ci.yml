@@ -24,3 +24,5 @@ jobs:
         run: ruff check .
       - name: Test
         run: pytest -q
+      - name: Sample pipeline run (synthetic data)
+        run: python -m riskengine.pipeline --sample
