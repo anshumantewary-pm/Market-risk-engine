@@ -99,3 +99,32 @@ def conditional_coverage(exceptions, alpha: float) -> TestResult:
         "conditional_coverage", lr, float(stats.chi2.sf(lr, 2)), 2,
         {"lr_pof": pof.statistic, "lr_ind": ind.statistic},
     )
+
+
+GREEN_CUTOFF = 0.95      # cumulative binomial probability where the yellow zone starts
+YELLOW_CUTOFF = 0.9999   # ... and where the red zone starts
+
+
+@dataclass(frozen=True)
+class TrafficLight:
+    zone: str            # "green", "yellow" or "red"
+    exceptions: int
+    days: int
+    green_max: int       # most exceptions still in the green zone
+    yellow_max: int      # most exceptions still in the yellow zone
+
+
+def traffic_light(exceptions, alpha: float = 0.99, days: int = 250) -> TrafficLight:
+    """Basel-style traffic light on the most recent ``days`` observations.
+
+    Zones come from the cumulative binomial probability of seeing that many exceptions if
+    the model were right: green below 95%, yellow below 99.99%, red above. For 250 days at
+    99% this gives the familiar green 0–4, yellow 5–9, red 10+.
+    """
+    e = _as_bool_array(exceptions)[-days:]
+    n, x = len(e), int(e.sum())
+    cdf = stats.binom.cdf(np.arange(n + 1), n, 1 - alpha)
+    green_max = int(np.searchsorted(cdf, GREEN_CUTOFF, side="left")) - 1
+    yellow_max = int(np.searchsorted(cdf, YELLOW_CUTOFF, side="left")) - 1
+    zone = "green" if x <= green_max else "yellow" if x <= yellow_max else "red"
+    return TrafficLight(zone, x, n, green_max, yellow_max)
