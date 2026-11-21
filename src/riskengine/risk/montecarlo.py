@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 from riskengine.risk.base import VarEs, empirical_var_es, prepare
 
@@ -41,3 +42,43 @@ class MonteCarloNormal:
         sims = mu + rng.standard_normal((self.n_sims, r.shape[1])) @ chol.T
         var, es = empirical_var_es(-(sims @ w), alpha)
         return VarEs(var, es, {"simulations": self.n_sims})
+
+
+def rank_correlation(r: np.ndarray) -> np.ndarray:
+    """Copula correlation from Spearman's rank correlation: ρ = 2·sin(π·ρ_s / 6).
+
+    Rank-based, so it is not distorted by outliers or by the shape of each marginal.
+    """
+    ranks = np.argsort(np.argsort(r, axis=0), axis=0).astype(float)
+    rho_s = np.atleast_2d(np.corrcoef(ranks, rowvar=False))
+    rho = 2 * np.sin(np.pi * rho_s / 6)
+    np.fill_diagonal(rho, 1.0)
+    return rho
+
+
+class MonteCarloTCopula:
+    """Student-t copula for the dependence, each asset's own empirical distribution for marginals.
+
+    The t copula makes extreme moves happen together more often than a normal copula does
+    (tail dependence), while the empirical marginals keep each asset's fat tails and skew.
+    """
+
+    name = "mc_t_copula"
+
+    def __init__(self, n_sims: int = DEFAULT_SIMULATIONS, seed: int = 42, dof: float = 5.0) -> None:
+        if dof <= 2:
+            raise ValueError("copula degrees of freedom must be above 2")
+        self.n_sims = n_sims
+        self.seed = seed
+        self.dof = dof
+
+    def estimate(self, returns: pd.DataFrame, weights: pd.Series, alpha: float) -> VarEs:
+        r, w = prepare(returns, weights, alpha)
+        rng = np.random.default_rng(self.seed)
+        chol = _cholesky(rank_correlation(r))
+        g = rng.standard_normal((self.n_sims, r.shape[1])) @ chol.T
+        chi = rng.chisquare(self.dof, size=self.n_sims) / self.dof
+        u = stats.t.cdf(g / np.sqrt(chi)[:, None], self.dof)
+        sims = np.column_stack([np.quantile(r[:, j], u[:, j]) for j in range(r.shape[1])])
+        var, es = empirical_var_es(-(sims @ w), alpha)
+        return VarEs(var, es, {"simulations": self.n_sims, "copula_dof": self.dof})
