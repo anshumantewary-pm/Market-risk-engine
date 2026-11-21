@@ -3,10 +3,9 @@
 Value-at-Risk, Expected Shortfall, backtesting, risk attribution and stress testing for a
 multi-asset ETF portfolio, with an interactive Streamlit dashboard.
 
-> **Status: in development.** The design is done ([PRD](docs/PRD.md), [architecture](docs/ARCHITECTURE.md));
-> the code is being built step by step. Sections below marked *planned* describe what is being built,
-> not what exists yet. No results have been published, and none will be until they come from a
-> real-data run.
+> **Status: in development.** The engine (data, five VaR/ES methods, backtesting, attribution,
+> stress testing and the end-to-end pipeline) is built and tested. The Streamlit dashboard is next.
+> No results have been published, and none will be until they come from a real-data run.
 
 ---
 
@@ -65,45 +64,60 @@ from loaded data; hypothetical factor shocks from config, labelled illustrative.
 
 10-day figures use √10 scaling, which assumes i.i.d. returns.
 
-## Getting started *(planned)*
+## Getting started
+
+Requires Python 3.11+.
 
 ```bash
-make install
+make install     # pip install -e ".[dev]"
 ```
 
 ```bash
-make sample      # run the full pipeline on synthetic data
+make sample      # full pipeline on SYNTHETIC data, about a minute
 ```
 
 ```bash
-make dashboard   # streamlit run src/riskengine/dashboard/app.py
+make test        # pytest
+```
+
+```bash
+make lint        # ruff
 ```
 
 With real data (needs internet access to stooq.com):
 
 ```bash
-python -m riskengine.download
+make download    # python -m riskengine.download -> data/raw/prices.csv
 ```
 
 ```bash
-python -m riskengine.pipeline
+make pipeline    # python -m riskengine.pipeline
 ```
 
-> Sample mode uses **synthetic** prices. The dashboard shows a banner and the run metadata is flagged
-> whenever synthetic data is in use. Synthetic numbers are for demonstrating the engine only.
+Outputs land in `data/processed/`: `estimates.csv`, `backtest_forecasts.csv`,
+`backtest_summary.csv`, `attribution.csv`, `stress.csv`, `returns.csv` and `run_metadata.json`.
+Useful flags: `--backtest-days N` (backtest only the last N days), `--config`, `--stress-config`.
 
-## Project structure *(planned)*
+> Sample mode uses **synthetic** prices. `run_metadata.json` is flagged `"synthetic": true` and the
+> pipeline prints a warning. Synthetic numbers are for demonstrating the engine only.
+
+The dashboard (`make dashboard`) is *planned* and will read these outputs.
+
+## Project structure
 
 ```
 config/                 portfolio and stress scenario configs
 src/riskengine/
+  config.py             typed, validated settings
+  conventions.py        sign rule, defaults, sqrt-time scaling
+  download.py           Stooq downloader
   data/                 load, validate, returns, synthetic generator
   risk/                 VaR/ES estimators
   backtest/             rolling forecasts and statistical tests
   attribution/          marginal / component VaR and ES
   stress/               historical replay and hypothetical shocks
   pipeline.py           end-to-end run -> data/processed/
-  dashboard/app.py      Streamlit app
+  dashboard/app.py      Streamlit app (planned)
 tests/                  pytest suite
 docs/                   PRD and architecture
 ```
