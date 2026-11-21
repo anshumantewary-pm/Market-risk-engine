@@ -1,0 +1,32 @@
+# Default portfolio: a balanced multi-asset mix of ETF proxies, about $10M notional.
+# Weights must sum to 1. asset_class is used to group positions in stress scenarios
+# and on the dashboard.
+#
+# Split: equities 41%, Treasuries 24%, credit 17%, commodities 10%, real estate 8%.
+
+portfolio:
+  name: Balanced multi-asset
+  notional: 10000000
+  positions:
+    SPY: { weight: 0.15, asset_class: us_equity }
+    QQQ: { weight: 0.08, asset_class: us_equity }
+    IWM: { weight: 0.05, asset_class: us_equity }
+    EFA: { weight: 0.08, asset_class: intl_equity }
+    EEM: { weight: 0.05, asset_class: intl_equity }
+    TLT: { weight: 0.12, asset_class: treasuries }
+    IEF: { weight: 0.12, asset_class: treasuries }
+    LQD: { weight: 0.10, asset_class: credit }
+    HYG: { weight: 0.07, asset_class: credit }
+    GLD: { weight: 0.07, asset_class: gold }
+    USO: { weight: 0.03, asset_class: oil }
+    VNQ: { weight: 0.08, asset_class: real_estate }
+
+risk:
+  window: 500                      # rolling estimation window, trading days
+  confidence_levels: [0.95, 0.99]
+  horizons: [1, 10]                # 10-day uses sqrt-of-time scaling (i.i.d. assumption)
+  ewma_lambda: 0.94                # RiskMetrics decay
+  mc_simulations: 20000
+  backtest_alpha: 0.99
+  traffic_light_days: 250
+  seed: 42
