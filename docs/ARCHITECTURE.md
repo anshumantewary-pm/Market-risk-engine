@@ -4,7 +4,7 @@ This document describes how Market Risk Engine is put together: the modules, wha
 data that flows between them, and the rules that keep the risk maths correct. It is the design; once
 code exists, the code is the source of truth and this file is updated to match it.
 
-Status: **design, pre-implementation.** Module and function names below are the planned ones.
+Status: **v1 implemented.** This document matches the code; if they ever disagree, the code wins.
 
 ---
 
@@ -41,26 +41,33 @@ market-risk-engine/
 │   │   ├── returns.py            # prices -> log returns, portfolio P&L
 │   │   └── synthetic.py          # regime-switching, fat-tailed sample data
 │   ├── risk/
-│   │   ├── base.py               # RiskEstimate dataclass, Estimator protocol, registry
+│   │   ├── base.py               # VarEs result, Estimator protocol, shared helpers
+│   │   ├── registry.py           # build all estimators, RiskEstimate, headline table
 │   │   ├── historical.py
 │   │   ├── parametric.py         # normal + Student-t
 │   │   ├── ewma.py               # RiskMetrics vol + filtered historical simulation
 │   │   └── montecarlo.py         # multivariate normal + t-copula
 │   ├── backtest/
 │   │   ├── rolling.py            # out-of-sample forecast loop (no look-ahead)
-│   │   └── tests.py              # Kupiec POF, Christoffersen, conditional coverage, traffic light
+│   │   ├── tests.py              # Kupiec POF, Christoffersen, conditional coverage, traffic light
+│   │   └── summary.py            # one row per method: exceptions, p-values, zone
 │   ├── attribution/
 │   │   └── components.py         # marginal VaR, component VaR, component ES
 │   ├── stress/
+│   │   ├── result.py             # StressResult + table
 │   │   ├── historical.py         # replay named windows on today's weights
 │   │   └── hypothetical.py       # factor shocks from config (illustrative)
 │   ├── pipeline.py               # python -m riskengine.pipeline [--sample]
 │   └── dashboard/
-│       └── app.py                # streamlit run src/riskengine/dashboard/app.py
+│       ├── app.py                # streamlit run src/riskengine/dashboard/app.py
+│       ├── data.py               # load pipeline outputs ($RISKENGINE_OUTPUT_DIR)
+│       ├── charts.py             # plotly figures (pure functions)
+│       └── whatif.py             # recompute risk for edited weights
 ├── tests/                        # pytest, mirrors src/ layout
 ├── docs/
 │   ├── ARCHITECTURE.md           # this file
 │   └── PRD.md                    # what we are building and why
+├── .streamlit/config.toml        # dashboard theme
 ├── .github/workflows/ci.yml
 ├── Makefile
 ├── pyproject.toml
@@ -168,35 +175,34 @@ and README instructions.
 
 ## 6. Risk layer
 
-### 6.1 Shared types (`risk/base.py`)
+### 6.1 Shared types (`risk/base.py`, `risk/registry.py`)
 
 ```python
 @dataclass(frozen=True)
-class RiskEstimate:
-    method: str            # "historical", "normal", "student_t", "ewma_fhs", "mc_normal", "mc_t_copula"
-    alpha: float           # e.g. 0.99
-    horizon_days: int      # 1 or 10
-    var_pct: float         # positive loss as fraction of notional
-    es_pct: float          # positive, >= var_pct
-    var_usd: float
-    es_usd: float
-    window_start: date     # first return used
-    window_end: date       # last return used (the forecast is for the next day)
-    diagnostics: dict      # e.g. {"nu": 4.8} for Student-t, {"sigma_now": ...} for EWMA
+class VarEs:                     # what every estimator returns
+    var: float                   # 1-day VaR, positive loss as a fraction of notional
+    es: float                    # 1-day ES, checked to be >= var
+    diagnostics: dict            # e.g. {"nu": 4.8} for Student-t
 
 class Estimator(Protocol):
     name: str
-    def estimate(self, returns: pd.DataFrame, weights: pd.Series, alpha: float) -> tuple[float, float]:
-        """Return (VaR, ES) as positive fractions of notional for 1 day,
-        using ONLY the rows in `returns` (the caller controls the window)."""
+    def estimate(self, returns: pd.DataFrame, weights: pd.Series, alpha: float) -> VarEs:
+        """Use ONLY the rows in `returns` (the caller controls the window)."""
+
+@dataclass(frozen=True)
+class RiskEstimate:              # registry.py: one row of the headline table
+    method: str; alpha: float; horizon_days: int
+    var_pct: float; es_pct: float; var_usd: float; es_usd: float
+    window_start: Timestamp; window_end: Timestamp; diagnostics: dict
 ```
 
 Every estimator is a pure function of a window of asset returns and the weights. The caller
 (pipeline or backtest) decides which rows are in the window, which is what makes "no look-ahead"
-a property of one place in the code (`backtest/rolling.py`) instead of five.
+a property of one place in the code (`backtest/rolling.py`) instead of six.
 
-A small registry (`ESTIMATORS = {"historical": ..., ...}`) lets the pipeline, backtest and dashboard
-loop over methods by name.
+`registry.build_estimators(cfg, n_sims=None)` returns all six estimators keyed by name, so the
+pipeline, backtest and dashboard loop over methods by name. `estimate_all` fits each method once
+per confidence level at 1 day and scales to longer horizons with `conventions.scale_horizon`.
 
 ### 6.2 Methods
 
@@ -206,7 +212,8 @@ loop over methods by name.
 | Parametric normal | `parametric.py` | `z_α σ_p − μ_p`, `σ_p = √(wᵀΣw)` | `σ_p φ(z_α)/(1−α) − μ_p` |
 | Parametric Student-t | `parametric.py` | `−μ + s·t_ν⁻¹(α)`, with `s = σ_p √((ν−2)/ν)` so the variance matches | `−μ + s · f_ν(t_α)/(1−α) · (ν + t_α²)/(ν−1)` |
 | EWMA / filtered HS | `ewma.py` | per-asset RiskMetrics vol, λ = 0.94: `σ²_t = λσ²_{t−1} + (1−λ)r²_{t−1}`; returns are divided by their vol at the time and rescaled by today's vol, then historical VaR on the rescaled P&L | same, on rescaled losses |
-| Monte Carlo | `montecarlo.py` | simulate N scenarios (default 20,000) from multivariate normal (μ, Σ) or a t-copula with empirical marginals; VaR = quantile of simulated losses | mean of simulated losses ≥ VaR |
+| Monte Carlo (normal) | `montecarlo.py` | simulate N scenarios (default 20,000) from a multivariate normal (μ, Σ); VaR = quantile of simulated losses | mean of simulated losses ≥ VaR |
+| Monte Carlo (t-copula) | `montecarlo.py` | t-copula (ν = 5) for dependence, each asset's empirical distribution for marginals | mean of simulated losses ≥ VaR |
 
 Implementation notes:
 
@@ -214,7 +221,12 @@ Implementation notes:
   above 2 so the variance exists. ν is reported in `diagnostics`.
 - EWMA variance is seeded with the sample variance of the first 30 days of the window, so the
   recursion never sees data from outside the window.
-- Monte Carlo takes the `Generator` explicitly; same seed → same numbers.
+- Monte Carlo uses the same seed on every call (common random numbers), so day-to-day changes in
+  a backtest come from the data, not simulation noise. The backtest uses 5,000 simulations per
+  forecast (`--backtest-sims`) to keep run time near a minute.
+- t-copula correlation comes from Spearman's rank correlation, `ρ = 2·sin(π·ρ_s/6)`. Simulated t
+  draws are mapped to uniforms by rank rather than through the t CDF: a copula is unchanged by
+  monotone transforms, so the ranks carry the full dependence, and this halves the run time.
 - 10-day numbers come from `conventions.scale_horizon(estimate, 10)`, never from inside an estimator.
 
 ---
@@ -338,7 +350,7 @@ functions on the stored returns (it does not re-run the backtest live). Data loa
 - Python 3.11+, packaged with `pyproject.toml`; `pip install -e ".[dev]"`.
 - Runtime: numpy, pandas, scipy, pyyaml, plotly, streamlit. Dev: pytest, ruff.
 - Makefile: `install`, `sample`, `pipeline`, `dashboard`, `test`, `lint`.
-- GitHub Actions (`ci.yml`) on push and PR, Python 3.11 and 3.12: `ruff check .`, `pytest -q`,
+- GitHub Actions (`ci.yml`) on push and PR, Python 3.11, 3.12 and 3.13: `ruff check .`, `pytest -q`,
   `python -m riskengine.pipeline --sample`.
 
 ---
