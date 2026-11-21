@@ -22,6 +22,7 @@ from riskengine.config import DEFAULT_CONFIG_PATH, DEFAULT_STRESS_PATH, Config, 
 from riskengine.data.load import DEFAULT_PRICES_PATH, LoadReport, load_prices, save_prices_csv
 from riskengine.data.returns import log_returns
 from riskengine.data.synthetic import generate_prices
+from riskengine.risk.registry import build_estimators, estimate_all, estimates_frame, latest_window
 
 DEFAULT_OUT_DIR = Path("data/processed")
 
@@ -94,11 +95,24 @@ def load_market_data(settings: RunSettings, cfg: Config) -> MarketData:
     return MarketData(prices, returns, report, source, settings.sample)
 
 
+def current_estimates(settings: RunSettings, cfg: Config, data: MarketData) -> pd.DataFrame:
+    """Step 2: every method x confidence level x horizon on the latest window."""
+    window = latest_window(data.returns, cfg.risk.window)
+    estimates = estimate_all(
+        window, cfg.portfolio.weight_series(), cfg.portfolio.notional,
+        build_estimators(cfg.risk), cfg.risk.confidence_levels, cfg.risk.horizons,
+    )
+    table = estimates_frame(estimates)
+    _log(settings, f"Estimates: {len(table)} rows for window ending {window.index[-1].date()}")
+    return table
+
+
 def run(settings: RunSettings) -> dict:
     """Run every step and return a summary of what was produced."""
     cfg = load_config(settings.config_path)
     data = load_market_data(settings, cfg)
-    return {"source": data.source, "days": data.report.n_rows}
+    estimates = current_estimates(settings, cfg, data)
+    return {"source": data.source, "days": data.report.n_rows, "estimates": estimates}
 
 
 def main(argv: list[str] | None = None) -> int:
