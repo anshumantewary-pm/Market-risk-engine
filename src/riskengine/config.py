@@ -140,3 +140,68 @@ def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> Config:
     with path.open() as fh:
         raw = yaml.safe_load(fh)
     return parse_config(raw)
+
+
+DEFAULT_STRESS_PATH = Path("config/stress_scenarios.yaml")
+
+
+@dataclass(frozen=True)
+class HistoricalWindow:
+    """A named date range to replay on today's portfolio."""
+
+    name: str
+    start: pd.Timestamp
+    end: pd.Timestamp
+
+    def __post_init__(self) -> None:
+        if self.start >= self.end:
+            raise ConfigError(f"stress window {self.name!r}: start must be before end")
+
+
+@dataclass(frozen=True)
+class FactorShock:
+    """An illustrative instantaneous shock, as simple returns by asset class or ticker."""
+
+    name: str
+    shocks: Mapping[str, float]
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.shocks:
+            raise ConfigError(f"scenario {self.name!r} has no shocks")
+        if any(s <= -1 for s in self.shocks.values()):
+            raise ConfigError(f"scenario {self.name!r}: a shock of -100% or worse is not allowed")
+
+
+@dataclass(frozen=True)
+class StressConfig:
+    historical: tuple[HistoricalWindow, ...] = ()
+    hypothetical: tuple[FactorShock, ...] = ()
+
+
+def parse_stress_config(raw: Mapping[str, Any] | None) -> StressConfig:
+    raw = raw or {}
+    try:
+        hist = tuple(
+            HistoricalWindow(str(h["name"]), pd.Timestamp(h["start"]), pd.Timestamp(h["end"]))
+            for h in raw.get("historical") or []
+        )
+        hypo = tuple(
+            FactorShock(
+                str(s["name"]),
+                {str(k): float(v) for k, v in (s.get("shocks") or {}).items()},
+                str(s.get("description", "")),
+            )
+            for s in raw.get("hypothetical") or []
+        )
+    except (KeyError, TypeError) as exc:
+        raise ConfigError(f"invalid stress scenario: {exc}") from exc
+    return StressConfig(hist, hypo)
+
+
+def load_stress_config(path: str | Path = DEFAULT_STRESS_PATH) -> StressConfig:
+    path = Path(path)
+    if not path.exists():
+        raise ConfigError(f"stress scenario file not found: {path}")
+    with path.open() as fh:
+        return parse_stress_config(yaml.safe_load(fh))

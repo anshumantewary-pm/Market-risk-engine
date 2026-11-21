@@ -1,0 +1,38 @@
+# Stress scenarios.
+#
+# historical: named date windows. The engine replays each asset's ACTUAL move over the window,
+#   computed from the loaded price data, on today's portfolio. Only dates are given here; no move
+#   sizes are assumed. A window is skipped if the loaded data does not cover it.
+#
+# hypothetical: instantaneous shocks (simple returns) by asset class or ticker. These sizes are
+#   ILLUSTRATIVE assumptions chosen for this project, not historical facts. A ticker entry
+#   overrides its asset class.
+
+historical:
+  - name: 2008 global financial crisis
+    start: 2008-09-01
+    end: 2009-03-09
+  - name: COVID-19 crash
+    start: 2020-02-19
+    end: 2020-03-23
+  - name: 2022 rate shock
+    start: 2022-01-03
+    end: 2022-10-14
+
+hypothetical:
+  - name: Equity sell-off
+    description: Broad risk-off move with a flight to quality.
+    shocks: { us_equity: -0.20, intl_equity: -0.22, real_estate: -0.15, credit: -0.04,
+              treasuries: 0.03, gold: 0.02, oil: -0.10 }
+  - name: Rates up sharply
+    description: Duration assets fall as yields rise; equities and real estate soften.
+    shocks: { treasuries: -0.08, TLT: -0.15, credit: -0.06, real_estate: -0.08,
+              us_equity: -0.05, intl_equity: -0.05 }
+  - name: Credit spreads widen
+    description: Corporate credit reprices; high yield hit hardest.
+    shocks: { credit: -0.05, HYG: -0.10, us_equity: -0.08, intl_equity: -0.09,
+              real_estate: -0.07, treasuries: 0.02 }
+  - name: Oil supply shock
+    description: Oil spikes; inflation fears weigh on bonds and equities.
+    shocks: { oil: 0.40, us_equity: -0.05, intl_equity: -0.06, treasuries: -0.02,
+              credit: -0.02, gold: 0.03 }
