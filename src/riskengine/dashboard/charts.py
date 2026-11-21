@@ -102,3 +102,39 @@ def backtest_chart(forecasts: pd.DataFrame, method: str) -> go.Figure:
     _layout(fig, "Out-of-sample backtest: daily loss vs 1-day VaR (% of notional)", height=420)
     fig.update_yaxes(ticksuffix="%")
     return fig
+
+
+def attribution_chart(attribution: pd.DataFrame) -> go.Figure:
+    """Weight share next to risk share per position: concentration at a glance."""
+    a = attribution.sort_values("risk_share", ascending=True)
+    fig = go.Figure()
+    for col, name, color in (("weight_share", "Share of capital", SERIES[0]),
+                             ("risk_share", "Share of VaR", SERIES[1])):
+        fig.add_bar(
+            y=a.index, x=a[col] * 100, name=name, orientation="h", marker={"color": color},
+            hovertemplate="%{y}<br>" + name + ": %{x:.1f}%<extra></extra>",
+        )
+    _layout(fig, "Risk share vs weight share by position (%)", height=480, barmode="group")
+    fig.update_xaxes(ticksuffix="%")
+    fig.update_yaxes(gridcolor=SURFACE)
+    return fig
+
+
+def stress_chart(stress: pd.DataFrame) -> go.Figure:
+    """Portfolio P&L per stress scenario that ran (skipped scenarios are listed separately)."""
+    ran = stress[stress["status"] == "run"].copy()
+    ran["label"] = ran["name"] + ran["kind"].map(
+        {"historical": " (historical)", "hypothetical": " (illustrative)"}
+    )
+    ran = ran.sort_values("pnl_usd")
+    fig = go.Figure(
+        go.Bar(
+            y=ran["label"], x=ran["pnl_usd"], orientation="h", marker={"color": SERIES[0]},
+            customdata=ran["pnl_pct"] * 100,
+            hovertemplate="%{y}<br>$%{x:,.0f} (%{customdata:.1f}%)<extra></extra>",
+        )
+    )
+    _layout(fig, "Stress P&L on today's portfolio ($)", height=360, showlegend=False)
+    fig.update_xaxes(tickprefix="$", tickformat=",.0f")
+    fig.update_yaxes(autorange="reversed", gridcolor=SURFACE)
+    return fig
