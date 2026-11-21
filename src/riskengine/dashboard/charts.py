@@ -57,3 +57,48 @@ def pnl_history(returns: pd.DataFrame) -> go.Figure:
     _layout(fig, "Cumulative portfolio P&L ($)", showlegend=False, hovermode="x unified")
     fig.update_yaxes(tickprefix="$", tickformat=",.0f")
     return fig
+
+
+def method_comparison(estimates: pd.DataFrame, alpha: float, horizon: int) -> go.Figure:
+    """VaR and ES in dollars for every method at one confidence level and horizon."""
+    sub = estimates[(estimates["alpha"] == alpha) & (estimates["horizon_days"] == horizon)]
+    sub = sub.set_index("method").reindex([m for m in METHOD_LABELS if m in set(sub["method"])])
+    labels = [METHOD_LABELS[m] for m in sub.index]
+    fig = go.Figure()
+    for col, name, color in (("var_usd", "VaR", SERIES[0]), ("es_usd", "Expected Shortfall",
+                                                              SERIES[1])):
+        fig.add_bar(
+            y=labels, x=sub[col], name=name, orientation="h", marker={"color": color},
+            hovertemplate="%{y}<br>" + name + ": $%{x:,.0f}<extra></extra>",
+        )
+    _layout(fig, f"{alpha:.0%} {horizon}-day VaR and ES by method ($)", height=360,
+            barmode="group")
+    fig.update_xaxes(tickprefix="$", tickformat=",.0f")
+    fig.update_yaxes(autorange="reversed", gridcolor=SURFACE)
+    return fig
+
+
+def backtest_chart(forecasts: pd.DataFrame, method: str) -> go.Figure:
+    """Realised daily loss against the 1-day VaR forecast, with exceptions marked."""
+    f = forecasts[forecasts["method"] == method].sort_values("date")
+    exc = f[f["exception"]]
+    fig = go.Figure()
+    fig.add_scatter(
+        x=f["date"], y=f["realised_loss"] * 100, mode="markers", name="Realised loss",
+        marker={"color": AXIS, "size": 3},
+        hovertemplate="%{x|%d %b %Y}<br>Loss %{y:.2f}%<extra></extra>",
+    )
+    fig.add_scatter(
+        x=f["date"], y=f["var"] * 100, mode="lines", name=f"VaR ({METHOD_LABELS.get(method)})",
+        line={"color": METHOD_COLORS.get(method, SERIES[0]), "width": 2},
+        hovertemplate="%{x|%d %b %Y}<br>VaR %{y:.2f}%<extra></extra>",
+    )
+    fig.add_scatter(
+        x=exc["date"], y=exc["realised_loss"] * 100, mode="markers",
+        name=f"Exception: loss > VaR ({len(exc)})",
+        marker={"color": CRITICAL, "size": 8, "symbol": "x", "line": {"width": 0}},
+        hovertemplate="%{x|%d %b %Y}<br>Exception: loss %{y:.2f}%<extra></extra>",
+    )
+    _layout(fig, "Out-of-sample backtest: daily loss vs 1-day VaR (% of notional)", height=420)
+    fig.update_yaxes(ticksuffix="%")
+    return fig
